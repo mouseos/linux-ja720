@@ -1621,7 +1621,7 @@ static void handle_usb_stat(u32 irq, struct w55fa93_udc *dev)
 		if (dev->usb_devstate == 3)
 			usb_gadget_set_state(&dev->gadget, USB_STATE_CONFIGURED);
 		else if (dev->usb_devstate == 2)
-			usb_gadget_set_state(&dev->gadget, USB_STATE_ADDRESSED);
+			usb_gadget_set_state(&dev->gadget, USB_STATE_ADDRESS);
 		else
 			usb_gadget_set_state(&dev->gadget, USB_STATE_DEFAULT);
 		break;
