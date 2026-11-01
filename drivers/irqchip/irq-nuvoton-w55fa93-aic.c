@@ -2,15 +2,27 @@
 /*
  * Interrupt controller driver for the Nuvoton W55FA93 (N32905) AIC.
  *
- * The W55FA93 AIC is the same interrupt controller block as the one in
- * the Nuvoton WPCM450 BMC SoC (see irq-wpcm450-aic.c): identical register
- * map and source-control layout. Register semantics double-checked
- * against the W55FA93 vendor BSP (arch/arm/mach-w55fa93/irq.c):
+ * The W55FA93 AIC is closely related to the interrupt controller in
+ * the Nuvoton WPCM450 BMC SoC (see irq-wpcm450-aic.c): the status and
+ * command register block at 0x100-0x130 is identical. The source
+ * control registers differ, however: where the WPCM450 has one 32-bit
+ * SCR per source, the W55FA93 has only eight SCRs (REG_AIC_SCR1-8 in
+ * the vendor BSP's w55fa93_reg.h), each packing four sources into
+ * 8-bit lanes ([2:0] priority, [7:6] trigger type). Programming them
+ * with the WPCM450 layout corrupts the trigger type of three out of
+ * four sources (e.g. TIMER0 ends up low-level triggered while its
+ * output is active high, so the timer interrupt is never delivered
+ * correctly and the boot wedges before any console output).
+ *
+ * Register semantics double-checked against the W55FA93 vendor BSP
+ * (arch/arm/mach-w55fa93/irq.c, drivers/input/keyboard/w55fa93_keypad_3x3.c):
  *   - mask:   write BIT(hwirq) to AIC_MDCR
  *   - unmask: write BIT(hwirq) to AIC_MECR
  *   - eoi:    write 0 to AIC_EOSCR
  *   - the pending source is obtained by reading AIC_IPER (which also
  *     allows the CPU IRQ line to de-assert) and dividing by 4.
+ *   - SCR:    byte lane (hwirq % 4) of register (hwirq / 4) * 4,
+ *             updated with a read-modify-write of that lane only.
  *
  * Copyright (C) 2026 JA720 Linux port contributors
  */
@@ -22,7 +34,10 @@
 
 #include <asm/exception.h>
 
-#define AIC_SCR(x)	((x) * 4)	/* Source control registers */
+#define AIC_SCR(x)	(((x) / 4) * 4)	/* SCR of source x (4 sources per SCR) */
+#define AIC_SCR_LANE(x)	(((x) % 4) * 8)	/* Byte lane of source x within its SCR */
+#define AIC_SCR_LANE_MASK(x)	(0xff << AIC_SCR_LANE(x))
+#define AIC_SCR_LANE_FILL(v)	((v) | ((v) << 8) | ((v) << 16) | ((v) << 24))
 #define AIC_GEN		0x84	/* Interrupt group enable control register */
 #define AIC_GRSR	0x88	/* Interrupt group raw status register */
 #define AIC_IRSR	0x100	/* Interrupt raw status register */
@@ -38,6 +53,7 @@
 #define AIC_SCCR	0x12c	/* Source clear command register */
 #define AIC_EOSCR	0x130	/* End of service command register */
 
+#define AIC_SCR_SRCTYPE_MASK		(3 << 6)
 #define AIC_SCR_SRCTYPE_LOW_LEVEL	(0 << 6)
 #define AIC_SCR_SRCTYPE_HIGH_LEVEL	(1 << 6)
 #define AIC_SCR_SRCTYPE_NEG_EDGE	(2 << 6)
@@ -70,10 +86,15 @@ static void w55fa93_aic_init_hw(void)
 	readl(aic->regs + AIC_IPER);
 	writel(0, aic->regs + AIC_EOSCR);
 
-	/* Initialize trigger mode and priority of each interrupt source */
-	for (i = 0; i < AIC_NUM_IRQS; i++)
-		writel(AIC_SCR_SRCTYPE_HIGH_LEVEL | AIC_SCR_PRIORITY(7),
-		       aic->regs + AIC_SCR(i));
+	/*
+	 * Initialize trigger mode and priority of each interrupt source.
+	 * Each SCR holds four sources in byte lanes, so filling every
+	 * lane with the same value programs all 32 sources at once.
+	 */
+	for (i = 0; i < AIC_NUM_IRQS / 4; i++)
+		writel(AIC_SCR_LANE_FILL(AIC_SCR_SRCTYPE_HIGH_LEVEL |
+					 AIC_SCR_PRIORITY(7)),
+		       aic->regs + i * 4);
 }
 
 static void __exception_irq_entry w55fa93_aic_handle_irq(struct pt_regs *regs)
@@ -111,6 +132,9 @@ static void w55fa93_aic_unmask(struct irq_data *d)
 
 static int w55fa93_aic_set_type(struct irq_data *d, unsigned int flow_type)
 {
+	unsigned int type;
+	u32 val;
+
 	/*
 	 * The hardware supports high/low level, as well as rising/falling
 	 * edge modes, and the DT binding accommodates for that, but as
@@ -119,6 +143,13 @@ static int w55fa93_aic_set_type(struct irq_data *d, unsigned int flow_type)
 	 */
 	if ((flow_type & IRQ_TYPE_SENSE_MASK) != IRQ_TYPE_LEVEL_HIGH)
 		return -EINVAL;
+	type = AIC_SCR_SRCTYPE_HIGH_LEVEL;
+
+	/* Update only this source's byte lane within its packed SCR. */
+	val = readl(aic->regs + AIC_SCR(d->hwirq));
+	val &= ~(AIC_SCR_SRCTYPE_MASK << AIC_SCR_LANE(d->hwirq));
+	val |= type << AIC_SCR_LANE(d->hwirq);
+	writel(val, aic->regs + AIC_SCR(d->hwirq));
 
 	return 0;
 }

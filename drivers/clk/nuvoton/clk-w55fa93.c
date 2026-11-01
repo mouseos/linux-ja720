@@ -12,10 +12,12 @@
  *    state left by the boot loader is not guaranteed for APB gates.
  *  - The timer gate parents are the external crystal clock, matching
  *    the BSP assumption CLOCK_TICK_RATE == EXTCLK rate.
- *  - The SIC (SD host) gate is fed from a nominal 48 MHz source clock;
- *    the exact CLKDIV1 SD divider programming is a TODO to be measured
- *    on hardware. The MMC driver derives its bus divider from this
- *    rate, so the bus stays at or below the requested speed.
+ *  - The SD engine clock is UPLL divided by the CLKDIV2 two-stage
+ *    divider (SD_S = UPLL, SDCLK = UPLL / ((SD_N0+1) * (SD_N1+1))),
+ *    programmed exactly like the BSP's nvt_sd_set_clock(). Until this
+ *    was implemented, "sd-src" was a fictitious fixed 48 MHz clock and
+ *    clk_set_rate() from the MMC driver changed no hardware, leaving
+ *    the SD engine at whatever clock the boot loader happened to set.
  *
  * Copyright (C) 2026 JA720 Linux port contributors
  */
@@ -31,8 +33,15 @@
 
 #define AHBCLK		0x204
 #define APBCLK		0x208
+#define CLKDIV2		0x214
 #define APLLCON		0x220
 #define UPLLCON		0x224
+
+/* CLKDIV2 SD engine clock fields (vendor BSP w55fa93_reg.h) */
+#define SD_N0_MASK	(0x7 << 16)	/* pre-divider SD_N0, stored value = div - 1 */
+#define SD_S_MASK	(0x3 << 19)	/* source select: 0=xin 1=x32k 2=apll 3=upll */
+#define SD_S_UPLL	(0x3 << 19)
+#define SD_N1_MASK	(0xff << 24)	/* divider SD_N1, stored value = div - 1 */
 
 #define PLL_PD		BIT(16)
 #define PLL_OUT_DV(x)	(((x) >> 14) & 0x3)
@@ -57,6 +66,90 @@ struct w55fa93_clk_data {
 };
 
 static DEFINE_SPINLOCK(w55fa93_clk_lock);
+
+/*
+ * SD engine clock: UPLL through the CLKDIV2 two-stage divider.
+ * Divider search mirrors the vendor BSP (nvt_sd_set_clock): the total
+ * division is rounded up so the resulting clock never exceeds the
+ * requested rate, div0 (1..8) is the largest factor of the total that
+ * fits, and div1 (1..256) takes the remainder.
+ */
+struct w55fa93_sdclk {
+	struct clk_hw hw;
+	void __iomem *reg;	/* CLKDIV2 */
+	spinlock_t *lock;
+};
+
+#define to_w55fa93_sdclk(_hw) container_of(_hw, struct w55fa93_sdclk, hw)
+
+static void w55fa93_sdclk_choose(unsigned long parent, unsigned long rate,
+				 unsigned int *div0, unsigned int *div1)
+{
+	unsigned long total;
+	unsigned int d0;
+
+	if (!rate)
+		rate = 1;
+	total = DIV_ROUND_UP(parent, rate);
+	if (total > 8UL * 256)
+		total = 8UL * 256;
+	if (!total)
+		total = 1;
+	for (d0 = 8; d0 > 0; d0--) {
+		if (total % d0 == 0)
+			break;
+	}
+	if (d0 == 0)
+		d0 = (total <= 256) ? 1 : 8;
+	*div0 = d0;
+	*div1 = (unsigned int)(total / d0);
+}
+
+static unsigned long w55fa93_sdclk_recalc_rate(struct clk_hw *hw,
+					       unsigned long parent_rate)
+{
+	struct w55fa93_sdclk *sdclk = to_w55fa93_sdclk(hw);
+	u32 val = readl(sdclk->reg);
+	unsigned int div0 = ((val & SD_N0_MASK) >> 16) + 1;
+	unsigned int div1 = ((val & SD_N1_MASK) >> 24) + 1;
+
+	return parent_rate / (div0 * div1);
+}
+
+static int w55fa93_sdclk_determine_rate(struct clk_hw *hw,
+					struct clk_rate_request *req)
+{
+	unsigned int div0, div1;
+
+	w55fa93_sdclk_choose(req->best_parent_rate, req->rate, &div0, &div1);
+	req->rate = req->best_parent_rate / (div0 * div1);
+	return 0;
+}
+
+static int w55fa93_sdclk_set_rate(struct clk_hw *hw, unsigned long rate,
+				  unsigned long parent_rate)
+{
+	struct w55fa93_sdclk *sdclk = to_w55fa93_sdclk(hw);
+	unsigned int div0, div1;
+	unsigned long flags;
+	u32 val;
+
+	w55fa93_sdclk_choose(parent_rate, rate, &div0, &div1);
+
+	spin_lock_irqsave(sdclk->lock, flags);
+	val = readl(sdclk->reg);
+	val &= ~(SD_N0_MASK | SD_N1_MASK | SD_S_MASK);
+	val |= ((div0 - 1) << 16) | ((div1 - 1) << 24) | SD_S_UPLL;
+	writel(val, sdclk->reg);
+	spin_unlock_irqrestore(sdclk->lock, flags);
+	return 0;
+}
+
+static const struct clk_ops w55fa93_sdclk_ops = {
+	.recalc_rate = w55fa93_sdclk_recalc_rate,
+	.determine_rate = w55fa93_sdclk_determine_rate,
+	.set_rate = w55fa93_sdclk_set_rate,
+};
 
 static void __init w55fa93_clk_init(struct device_node *np)
 {
@@ -114,11 +207,30 @@ static void __init w55fa93_clk_init(struct device_node *np)
 	if (!IS_ERR(hw))
 		hw_data->hws[W55FA93_CLK_UPLL] = hw;
 
-	/* Nominal 48 MHz feed for the SIC/SD engine (TODO: measure) */
-	hw = clk_hw_register_fixed_rate(NULL, "sd-src", "upll", 0, 48000000);
-	if (IS_ERR(hw))
-		goto err;
-	sd_src_hw = hw;
+	/* SD engine clock: UPLL through the CLKDIV2 divider */
+	{
+		struct w55fa93_sdclk *sdclk;
+		struct clk_init_data init = { };
+
+		sdclk = kzalloc(sizeof(*sdclk), GFP_KERNEL);
+		if (!sdclk)
+			goto err;
+		sdclk->reg = gcr + CLKDIV2;
+		sdclk->lock = &w55fa93_clk_lock;
+		init.name = "sd-src";
+		init.ops = &w55fa93_sdclk_ops;
+		init.parent_hws = (const struct clk_hw *[]) {
+			hw_data->hws[W55FA93_CLK_UPLL]
+		};
+		init.num_parents = 1;
+		sdclk->hw.init = &init;
+		ret = clk_hw_register(NULL, &sdclk->hw);
+		if (ret) {
+			kfree(sdclk);
+			goto err;
+		}
+		sd_src_hw = &sdclk->hw;
+	}
 
 #define GATE(id, name, parent_hw, reg, bit)				\
 	do {								\
