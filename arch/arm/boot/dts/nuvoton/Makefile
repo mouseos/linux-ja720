@@ -7,3 +7,5 @@ dtb-$(CONFIG_ARCH_NPCM7XX) += \
 	nuvoton-npcm750-runbmc-olympus.dtb
 dtb-$(CONFIG_ARCH_WPCM450) += \
 	nuvoton-wpcm450-supermicro-x9sci-ln4f.dtb
+dtb-$(CONFIG_ARCH_MULTIPLATFORM) += \
+	nuvoton-w55fa93-ja720.dtb

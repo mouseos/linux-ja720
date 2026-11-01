@@ -17,3 +17,10 @@ config CLK_MA35D1
 	  Build the clock controller driver for MA35D1 SoC.
 
 endif
+
+config COMMON_CLK_W55FA93
+	bool "Nuvoton W55FA93 clock controller support"
+	depends on OF
+	help
+	  Support for the clock controller in the Nuvoton W55FA93
+	  (N32905) SoC: APLL/UPLL rate decode and AHB/APB clock gates.

@@ -451,3 +451,11 @@ config USB_DUMMY_HCD
 # first and will be selected by default.
 
 endmenu
+
+config USB_W55FA93
+	tristate "Nuvoton W55FA93 USB Device Controller"
+	depends on OF
+	help
+	  The Nuvoton W55FA93 (N32905) SoC has a full-speed USB device
+	  controller with an internal DMA engine and 6 configurable
+	  endpoints in addition to EP0. Say Y or M here to support it.

@@ -780,6 +780,14 @@ config WPCM450_AIC
 	help
 	  Support for the interrupt controller in the Nuvoton WPCM450 BMC SoC.
 
+config NUVOTON_W55FA93_AIC
+	bool "Nuvoton W55FA93 Advanced Interrupt Controller"
+	depends on ARCH_MULTI_V5 || COMPILE_TEST
+	help
+	  Support for the Advanced Interrupt Controller in the Nuvoton
+	  W55FA93 (N32905) SoC. The AIC is the same interrupt controller
+	  block as in the WPCM450, with an identical register map.
+
 config IRQ_IDT3243X
 	bool
 	select GENERIC_IRQ_CHIP

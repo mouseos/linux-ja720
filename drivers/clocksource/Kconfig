@@ -198,6 +198,14 @@ config NPCM7XX_TIMER
 	  Enable 24-bit TIMER0 and TIMER1 counters in the NPCM7xx architecture,
 	  where TIMER0 serves as clockevent and TIMER1 serves as clocksource.
 
+config W55FA93_TIMER
+	bool "W55FA93 timer driver"
+	depends on HAS_IOMEM
+	select TIMER_OF
+	help
+	  Enables the clocksource and clockevent support for the timers
+	  in the Nuvoton W55FA93 (N32905) SoC.
+
 config CADENCE_TTC_TIMER
 	bool "Cadence TTC timer driver" if COMPILE_TEST
 	depends on COMMON_CLK

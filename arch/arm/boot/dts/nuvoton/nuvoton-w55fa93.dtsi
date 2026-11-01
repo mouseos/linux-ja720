@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+/*
+ * Device tree for the Nuvoton W55FA93 (N32905) SoC.
+ *
+ * Register bases and interrupt numbers are taken from the vendor BSP
+ * (arch/arm/mach-w55fa93/include/mach/{map.h,irqs.h,w55fa93_reg.h})
+ * and cross-checked against the boot loader firmware of the JA720.
+ */
+
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/clock/nuvoton-w55fa93.h>
+
+/ {
+	compatible = "nuvoton,w55fa93";
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu0: cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,arm926ej-s";
+			reg = <0>;
+		};
+	};
+
+	xin: xin-clock {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		/* External crystal; 12 MHz on JA720 (BSP EXTCLK_12M). */
+		clock-frequency = <12000000>;
+		clock-output-names = "xin";
+	};
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		clk: clock-controller@b0000000 {
+			compatible = "nuvoton,w55fa93-clk";
+			reg = <0xb0000000 0x1000>;
+			clocks = <&xin>;
+			#clock-cells = <1>;
+		};
+
+		aic: interrupt-controller@b8000000 {
+			compatible = "nuvoton,w55fa93-aic";
+			reg = <0xb8000000 0x200>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+
+		timer: timer@b8002000 {
+			compatible = "nuvoton,w55fa93-timer";
+			reg = <0xb8002000 0x20>;
+			interrupts = <14 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&xin>;
+		};
+
+		mmc: mmc@b1006000 {
+			compatible = "nuvoton,w55fa93-mmc";
+			reg = <0xb1006000 0x1000>;
+			interrupts = <17 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clk W55FA93_CLK_SIC>, <&clk W55FA93_CLK_SD>;
+			clock-names = "sic", "sd";
+			status = "disabled";
+		};
+
+		usbd: usb@b1008000 {
+			compatible = "nuvoton,w55fa93-usbd";
+			reg = <0xb1008000 0x1000>;
+			interrupts = <16 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clk W55FA93_CLK_USBD>;
+			status = "disabled";
+		};
+	};
+};

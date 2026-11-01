@@ -59,6 +59,7 @@ obj-$(CONFIG_OWL_TIMER)		+= timer-owl.o
 obj-$(CONFIG_MILBEAUT_TIMER)	+= timer-milbeaut.o
 obj-$(CONFIG_SPRD_TIMER)	+= timer-sprd.o
 obj-$(CONFIG_NPCM7XX_TIMER)	+= timer-npcm7xx.o
+obj-$(CONFIG_W55FA93_TIMER)	+= timer-nuvoton-w55fa93.o
 obj-$(CONFIG_RDA_TIMER)		+= timer-rda.o
 obj-$(CONFIG_REALTEK_OTTO_TIMER)	+= timer-rtl-otto.o
 

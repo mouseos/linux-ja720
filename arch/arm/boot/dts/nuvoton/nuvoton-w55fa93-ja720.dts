@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+/*
+ * Device tree for the Benesse Pocket Challenge 4 (model JA720),
+ * based on the Nuvoton W55FA93 SoC.
+ *
+ * Board facts measured from the stock firmware (see the project
+ * documentation): 32 MiB SDRAM at 0x80000000, 320x240 LCD driven by
+ * the boot loader through VPOST with a 32 bpp framebuffer at
+ * 0x81c00000, internal eSD on the SIC (SD) host controller.
+ */
+
+/dts-v1/;
+#include "nuvoton-w55fa93.dtsi"
+
+/ {
+	model = "Benesse Pocket Challenge 4 (JA720)";
+	compatible = "benesse,ja720", "nuvoton,w55fa93";
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x80000000 0x02000000>;	/* 32 MiB */
+	};
+
+	chosen {
+		bootargs = "console=tty0 loglevel=7 panic=-1";
+		stdout-path = "framebuffer";
+	};
+
+	framebuffer@81c00000 {
+		compatible = "simple-framebuffer";
+		reg = <0x81c00000 0x4b000>;	/* 320 * 240 * 4 */
+		width = <320>;
+		height = <240>;
+		stride = <(320 * 4)>;
+		format = "a8r8g8b8";
+		clocks = <&clk W55FA93_CLK_VPOST>;
+	};
+};
+
+&mmc {
+	status = "okay";
+	bus-width = <4>;
+	non-removable;
+};
+
+&usbd {
+	status = "okay";
+};

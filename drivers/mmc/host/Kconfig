@@ -1141,3 +1141,13 @@ config MMC_LITEX
 	  module will be called litex_mmc.
 
 	  If unsure, say N.
+
+config MMC_W55FA93
+	tristate "Nuvoton W55FA93 SIC SD host controller support"
+	depends on OF
+	help
+	  This selects the SD host controller driver for the SIC (SD
+	  Host Interface Controller) found in the Nuvoton W55FA93
+	  (N32905) SoC.
+
+	  If you have a board based on the W55FA93, say Y or M here.
