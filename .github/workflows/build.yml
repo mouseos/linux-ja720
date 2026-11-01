@@ -1,0 +1,68 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-linux-gnueabi bc bison flex libssl-dev libelf-dev \
+            dwarves ccache
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-ja720-${{ hashFiles('arch/arm/configs/ja720_defconfig') }}
+          restore-keys: |
+            ccache-ja720-
+
+      - name: Configure
+        run: |
+          export CCACHE_DIR=$HOME/.ccache
+          ccache --set-config=max_size=1G
+          make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- ja720_defconfig
+
+      - name: Build kernel and device tree
+        run: |
+          export CCACHE_DIR=$HOME/.ccache
+          make -j$(nproc) ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- \
+            CC="ccache arm-linux-gnueabi-gcc" zImage dtbs
+          ccache -s
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p out
+          cp arch/arm/boot/zImage out/zImage
+          cp arch/arm/boot/dts/nuvoton/nuvoton-w55fa93-ja720.dtb out/ja720.dtb
+          cp .config out/config
+          cp System.map out/System.map
+          ls -l out
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-ja720
+          path: out/
+
+      - name: Publish dev release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="dev-${{ github.run_number }}"
+          gh release create "$tag" out/zImage out/ja720.dtb out/config out/System.map \
+            --title "JA720 kernel dev build ${{ github.run_number }}" \
+            --notes "Automated dev build of the W55FA93/JA720 kernel port from commit ${{ github.sha }}. Consumed by the ja720-sd-image repository."
