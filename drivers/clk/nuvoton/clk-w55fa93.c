@@ -5,7 +5,7 @@
  * Bring-up oriented provider:
  *  - APLL/UPLL rates are decoded from the PLLCON registers (FB_DV [8:0],
  *    IN_DV [13:9], OUT_DV [15:14]; Fout = Fin * (FB+2) / ((IN+2) * OD),
- *    OD = 1/2/4/8 for OUT_DV = 0/1/2/3), as in the vendor BSP.
+ *    OD = 1/2/2/4 for OUT_DV = 0/1/2/3, per the vendor BSP's NOMap).
  *  - AHBCLK/APBCLK gates are registered with CLK_IGNORE_UNUSED, and the
  *    clocks the port depends on (VPOST, SIC, SD engine, USBD, USBH,
  *    timers) are explicitly switched on at probe time, because the
@@ -48,7 +48,12 @@
 #define PLL_IN_DV(x)	(((x) >> 9) & 0x1f)
 #define PLL_FB_DV(x)	((x) & 0x1ff)
 
-static const unsigned int pll_outdiv[] = { 1, 2, 4, 8 };
+/* Output divider indexed by OUT_DV: the BSP's NOMap is {1, 2, 2, 4}
+ * (arch/arm/mach-w55fa93/w55fa93.c, w55fa93_get_pll), not the more
+ * common {1, 2, 4, 8} progression. Getting this wrong halves the
+ * decoded PLL rate for OUT_DV 2 and 3, which in turn makes the SD
+ * divider computation run the card at twice the requested clock. */
+static const unsigned int pll_outdiv[] = { 1, 2, 2, 4 };
 
 static unsigned long w55fa93_pll_rate(void __iomem *gcr, u32 off,
 				      unsigned long fin)
