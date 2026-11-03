@@ -943,9 +943,21 @@ fail:
 	return ret;
 }
 
+/* Boot-milestone breadcrumbs (see clk-w55fa93.c). Diagnostic only. */
+extern void ja720_paint(u32 color);
+
+static int __init ja720_crumb_late(void)
+{
+	ja720_paint(0xffff00ff);	/* MAGENTA: all initcalls finished */
+	return 0;
+}
+late_initcall_sync(ja720_crumb_late);
+
 static int w55fa93_sd_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
+
+	ja720_paint(0xff00ffff);	/* CYAN: MMC host probing */
 	struct w55fa93_sic *sic;
 	unsigned int port2 = 0;
 	int ret;

@@ -156,6 +156,26 @@ static const struct clk_ops w55fa93_sdclk_ops = {
 	.set_rate = w55fa93_sdclk_set_rate,
 };
 
+/*
+ * Boot-milestone breadcrumb for the JA720 hardware bring-up: fill the
+ * framebuffer the boot loader set up (0x81c00000, 320x240 a8r8g8b8)
+ * with a solid color. Diagnostic only; each boot stage paints its own
+ * color so the last visible color names the stage that was reached.
+ */
+void ja720_paint(u32 color)
+{
+	void __iomem *fb;
+	int i;
+
+	fb = ioremap(0x81c00000, 320 * 240 * 4);
+	if (!fb)
+		return;
+	for (i = 0; i < 320 * 240; i++)
+		writel(color, fb + i * 4);
+	iounmap(fb);
+}
+EXPORT_SYMBOL_GPL(ja720_paint);
+
 static void __init w55fa93_clk_init(struct device_node *np)
 {
 	struct clk_hw_onecell_data *hw_data;
@@ -287,6 +307,7 @@ static void __init w55fa93_clk_init(struct device_node *np)
 		pr_err("w55fa93-clk: failed to add provider: %d\n", ret);
 		goto err;
 	}
+	ja720_paint(0xff00ff00);	/* GREEN: clk provider is up */
 	return;
 
 err:
